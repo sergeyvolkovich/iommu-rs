@@ -1,0 +1,21 @@
+[package]
+name = "amd-iommu"
+description = "no_std library for the AMD I/O Virtualization Technology (IOMMU/AMD-Vi): IVRS/IVMD ACPI parsing, Device Table Entries, MMIO registers, command/event/PPR buffers, interrupt remapping and v1/v2 page tables"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories = ["no-std", "hardware-support", "os"]
+keywords = ["iommu", "amd", "amdv-i", "virtualization", "no_std"]
+
+[features]
+default = []
+# Enable `std::error::Error` impls and any std-only conveniences.
+std = []
+
+[dependencies]
+zerocopy.workspace = true
+bitflags.workspace = true
+tock-registers.workspace = true
+thiserror.workspace = true
+log.workspace = true

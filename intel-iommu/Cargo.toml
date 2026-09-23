@@ -1,0 +1,21 @@
+[package]
+name = "intel-iommu"
+description = "no_std library for Intel VT-d (Virtualization Technology for Directed I/O): DMAR ACPI parsing, root/context/PASID structures, register map, queued invalidation, fault recording, interrupt remapping and first/second-stage page tables"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+categories = ["no-std", "hardware-support", "os"]
+keywords = ["iommu", "intel", "vtd", "virtualization", "no_std"]
+
+[features]
+default = []
+# Enable `std::error::Error` impls and any std-only conveniences.
+std = []
+
+[dependencies]
+zerocopy.workspace = true
+bitflags.workspace = true
+tock-registers.workspace = true
+thiserror.workspace = true
+log.workspace = true
