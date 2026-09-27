@@ -266,6 +266,14 @@ impl DeviceTableEntry {
         extract_bits(self.q0, 57, 56) as u8
     }
 
+    /// Set the guest level size (GLX, bits 57:56): `00b` = 4 levels,
+    /// `01b` = 3 levels, `10b` = 2 levels of the GCR3 guest page tables.
+    #[must_use]
+    pub const fn with_glx(mut self, glx: u8) -> Self {
+        self.q0 = (self.q0 & !(0x3 << 56)) | (((glx & 0x3) as u64) << 56);
+        self
+    }
+
     /// Interrupt remapping enable (IR, bit 61).
     #[must_use]
     pub const fn ir(&self) -> bool {
@@ -401,6 +409,21 @@ impl DeviceTableEntry {
         self
     }
 
+    /// Domain identifier (DomainID, DTE bits 143:128 = q2[15:0]) carried
+    /// in cached translations so domain-scoped invalidations
+    /// (INVALIDATE_IOMMU_PAGES.DominID) can match them.
+    #[must_use]
+    pub const fn domain_id(&self) -> u16 {
+        extract_bits(self.q2, 15, 0) as u16
+    }
+
+    /// Set the domain identifier.
+    #[must_use]
+    pub const fn with_domain_id(mut self, did: u16) -> Self {
+        self.q2 = (self.q2 & !0xffff) | (did as u64);
+        self
+    }
+
     /// INIT pass-through (DTE bit 184).
     #[must_use]
     pub const fn init_pass(&self) -> bool {
@@ -462,6 +485,37 @@ impl DeviceTableEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dte_glx_builder() {
+        // GLX (q0[57:56]): 00b = 4 уровня, 01b = 3, 10b = 2 гостевых уровней.
+        let dte = DeviceTableEntry::new()
+            .with_valid(true)
+            .with_glx(0b00);
+        assert_eq!(dte.glx(), 0b00);
+        assert_eq!(extract_bits(dte.q0, 57, 56), 0b00);
+        let dte = dte.with_glx(0b10);
+        assert_eq!(dte.glx(), 0b10);
+        // Соседние биты не задеты.
+        assert!(dte.valid());
+    }
+
+    #[test]
+    fn dte_domain_id_roundtrip() {
+        // DomainID (DTE bits 143:128 = q2[15:0]) тегирует трансляции для
+        // домен-scoped инвалидаций.
+        let dte = DeviceTableEntry::new()
+            .with_valid(true)
+            .with_translation_valid(true)
+            .with_host_page_table_root(0x1234_5000)
+            .with_domain_id(0xbeef);
+        assert_eq!(dte.domain_id(), 0xbeef);
+        // Проводная раскладка: q2, байты 16..18.
+        let raw = dte.into_bytes();
+        assert_eq!(u16::from_le_bytes([raw[16], raw[17]]), 0xbeef);
+        // Host-поля не задеты.
+        assert_eq!(dte.host_page_table_root(), 0x1234_5000);
+    }
 
     #[test]
     fn dte_roundtrip() {

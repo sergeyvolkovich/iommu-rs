@@ -372,10 +372,24 @@ impl ScalableContextEntry {
         self.q0 & 8 != 0
     }
 
+    /// Set the PASID enable flag (bit 3): process requests-with-PASID.
+    #[must_use]
+    pub const fn with_pasid_enable(mut self, en: bool) -> Self {
+        self.q0 = (self.q0 & !(1 << 3)) | (((en as u8) as u64) << 3);
+        self
+    }
+
     /// Page-request enable (bit 4).
     #[must_use]
     pub const fn page_request_enable(&self) -> bool {
         self.q0 & 0x10 != 0
+    }
+
+    /// Set the page-request enable flag (bit 4).
+    #[must_use]
+    pub const fn with_page_request_enable(mut self, en: bool) -> Self {
+        self.q0 = (self.q0 & !(1 << 4)) | (((en as u8) as u64) << 4);
+        self
     }
 
     /// HPT enable (bit 5).
@@ -442,6 +456,18 @@ impl ScalableContextEntry {
     pub const fn with_rid_priv(mut self, en: bool) -> Self {
         self.q1 = (self.q1 & !(1 << 20)) | (((en as u8) as u64) << 20);
         self
+    }
+
+    /// Raw 32 bytes, little-endian, ready to store in the scalable
+    /// context table.
+    #[must_use]
+    pub fn into_bytes(self) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        out[0..8].copy_from_slice(&self.q0.to_le_bytes());
+        out[8..16].copy_from_slice(&self.q1.to_le_bytes());
+        out[16..24].copy_from_slice(&self.reserved[0].to_le_bytes());
+        out[24..32].copy_from_slice(&self.reserved[1].to_le_bytes());
+        out
     }
 }
 
@@ -734,6 +760,21 @@ impl PasidTableEntry {
         self
     }
 
+    /// First-level page-table root pointer (`FLRTP`, entry bits 191:128 =
+    /// q2[63:12]): root of the first-stage (guest VA) page tables used
+    /// when `PGTT` selects first-stage-only or nested translation.
+    #[must_use]
+    pub const fn first_level_ptr(&self) -> u64 {
+        self.q2 & 0x000f_ffff_ffff_f000
+    }
+
+    /// Set the first-level page-table root pointer (4 KiB aligned).
+    #[must_use]
+    pub const fn with_first_level_ptr(mut self, addr: u64) -> Self {
+        self.q2 = (self.q2 & !0x000f_ffff_ffff_f000) | (addr & 0x000f_ffff_ffff_f000);
+        self
+    }
+
     /// Write-protect enable (WPE, qword 2 bit 4) for supervisor requests.
     #[must_use]
     pub const fn write_protect_enable(&self) -> bool {
@@ -858,6 +899,47 @@ mod tests {
         assert_eq!(extract_bits(pe.q0, 8, 6), 1);
         // DID at q1 bits 15:0.
         assert_eq!(pe.q1 & 0xffff, 7);
+    }
+
+    #[test]
+    fn scalable_context_paside_and_wire() {
+        // PASIDE/PRE builders + the 32-byte wire serialization.
+        let ce = ScalableContextEntry::new()
+            .with_present(true)
+            .with_pasid_enable(true)
+            .with_page_request_enable(false)
+            .with_pasid_dir_ptr(0xabc000)
+            .with_pasid_dir_size(0);
+        assert!(ce.pasid_enable());
+        assert!(!ce.page_request_enable());
+        let raw = ce.into_bytes();
+        assert_eq!(raw[0] & 1, 1);
+        assert_eq!(raw[0] & 0x8, 0x8, "PASIDE in wire byte 0");
+        assert_eq!(raw[0] & 0x10, 0, "PRE clear");
+        assert_eq!(
+            u64::from_le_bytes(raw[24..32].try_into().unwrap()),
+            0,
+            "reserved qword"
+        );
+    }
+
+    #[test]
+    fn pasid_entry_first_level_ptr() {
+        // FLRTP (q2[63:12]) is independent from SLPTPTR (q0[63:12]).
+        let pe = PasidTableEntry::new()
+            .with_present(true)
+            .with_pgtt(Pgtt::Nested)
+            .with_page_table_ptr(0x5000)
+            .with_flpm(Flpm::FourLevel)
+            .with_first_level_ptr(0x6000_0000);
+        assert_eq!(pe.first_level_ptr(), 0x6000_0000);
+        assert_eq!(pe.page_table_ptr(), 0x5000, "SLPTPTR untouched");
+        assert_eq!(pe.flpm(), Flpm::FourLevel);
+        let raw = pe.into_bytes();
+        let q2 = u64::from_le_bytes(raw[16..24].try_into().unwrap());
+        assert_eq!(q2 & 0x000f_ffff_ffff_f000, 0x6000_0000);
+        let cleared = pe.with_first_level_ptr(0);
+        assert_eq!(cleared.first_level_ptr(), 0);
     }
 
     #[test]
